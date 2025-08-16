@@ -29,8 +29,8 @@ public class StepCompletionListener implements StepExecutionListener {
         
         if (stepExecution.getStartTime() != null && stepExecution.getEndTime() != null) {
             Duration duration = Duration.between(
-                stepExecution.getStartTime().toLocalDateTime(),
-                stepExecution.getEndTime().toLocalDateTime()
+                stepExecution.getStartTime(),
+                stepExecution.getEndTime()
             );
             log.info("Step Execution Time: {} ms", duration.toMillis());
         }

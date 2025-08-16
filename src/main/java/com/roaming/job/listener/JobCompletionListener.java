@@ -32,8 +32,8 @@ public class JobCompletionListener implements JobExecutionListener {
         
         if (jobExecution.getStartTime() != null && jobExecution.getEndTime() != null) {
             Duration duration = Duration.between(
-                jobExecution.getStartTime().toLocalDateTime(),
-                jobExecution.getEndTime().toLocalDateTime()
+                jobExecution.getStartTime(),
+                jobExecution.getEndTime()
             );
             log.info("Total Execution Time: {} ms", duration.toMillis());
         }
