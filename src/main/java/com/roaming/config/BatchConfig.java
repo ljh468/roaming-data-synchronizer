@@ -5,6 +5,8 @@ import com.roaming.domain.RoamingStatusEntity;
 import com.roaming.job.listener.JobCompletionListener;
 import com.roaming.job.listener.StepCompletionListener;
 import com.roaming.job.processor.RoamingDataProcessor;
+import com.roaming.job.tasklet.FileArchiveTasklet;
+import com.roaming.job.tasklet.CompletionNotificationTasklet;
 import jakarta.persistence.EntityManagerFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +50,8 @@ public class BatchConfig {
     private final RoamingDataProcessor roamingDataProcessor;
     private final JobCompletionListener jobCompletionListener;
     private final StepCompletionListener stepCompletionListener;
+    private final FileArchiveTasklet fileArchiveTasklet;
+    private final CompletionNotificationTasklet completionNotificationTasklet;
 
     @Bean
     public Job chunkSyncJob() {
@@ -69,6 +73,30 @@ public class BatchConfig {
         return new JobBuilder("partitioningSyncJob", jobRepository)
                 .listener(jobCompletionListener)
                 .start(partitionedStep())
+                .build();
+    }
+
+    @Bean
+    public Job fullSyncJob() {
+        return new JobBuilder("fullSyncJob", jobRepository)
+                .listener(jobCompletionListener)
+                .start(fileArchiveStep())
+                .next(partitionedStep())
+                .next(completionNotificationStep())
+                .build();
+    }
+
+    @Bean
+    public Step fileArchiveStep() {
+        return new StepBuilder("fileArchiveStep", jobRepository)
+                .tasklet(fileArchiveTasklet, transactionManager)
+                .build();
+    }
+
+    @Bean
+    public Step completionNotificationStep() {
+        return new StepBuilder("completionNotificationStep", jobRepository)
+                .tasklet(completionNotificationTasklet, transactionManager)
                 .build();
     }
 

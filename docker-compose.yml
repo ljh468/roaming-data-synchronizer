@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: roaming-postgres
+    environment:
+      POSTGRES_DB: roaming_db
+      POSTGRES_USER: roaming_user
+      POSTGRES_PASSWORD: roaming_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roaming_user -d roaming_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
