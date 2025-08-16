@@ -2,6 +2,9 @@ package com.roaming.config;
 
 import com.roaming.domain.RoamingData;
 import com.roaming.domain.RoamingStatusEntity;
+import com.roaming.job.listener.JobCompletionListener;
+import com.roaming.job.listener.StepCompletionListener;
+import com.roaming.job.processor.RoamingDataProcessor;
 import jakarta.persistence.EntityManagerFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +15,7 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.batch.item.database.JpaItemWriter;
 import org.springframework.batch.item.database.builder.JpaItemWriterBuilder;
 import org.springframework.batch.item.file.FlatFileItemReader;
@@ -22,9 +26,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-
 @Slf4j
 @Configuration
 @RequiredArgsConstructor
@@ -33,6 +34,9 @@ public class BatchConfig {
     private final JobRepository jobRepository;
     private final PlatformTransactionManager transactionManager;
     private final EntityManagerFactory entityManagerFactory;
+    private final RoamingDataProcessor roamingDataProcessor;
+    private final JobCompletionListener jobCompletionListener;
+    private final StepCompletionListener stepCompletionListener;
 
     @Bean
     public Job chunkSyncJob() {
@@ -42,12 +46,36 @@ public class BatchConfig {
     }
 
     @Bean
+    public Job robustSyncJob() {
+        return new JobBuilder("robustSyncJob", jobRepository)
+                .listener(jobCompletionListener)
+                .start(robustReadAndSaveStep())
+                .build();
+    }
+
+    @Bean
     public Step chunkReadAndSaveStep() {
         return new StepBuilder("chunkReadAndSaveStep", jobRepository)
                 .<RoamingData, RoamingStatusEntity>chunk(10, transactionManager)
                 .reader(csvItemReader())
-                .processor(roamingDataProcessor())
+                .processor(roamingDataProcessor)
                 .writer(jpaItemWriter())
+                .build();
+    }
+
+    @Bean
+    public Step robustReadAndSaveStep() {
+        return new StepBuilder("robustReadAndSaveStep", jobRepository)
+                .<RoamingData, RoamingStatusEntity>chunk(10, transactionManager)
+                .reader(csvItemReader())
+                .processor(roamingDataProcessor)
+                .writer(jpaItemWriter())
+                .faultTolerant()
+                .skip(IllegalArgumentException.class)
+                .skipLimit(5)
+                .retry(TransientDataAccessException.class)
+                .retryLimit(3)
+                .listener(stepCompletionListener)
                 .build();
     }
 
@@ -66,25 +94,7 @@ public class BatchConfig {
                 .build();
     }
 
-    @Bean
-    public ItemProcessor<RoamingData, RoamingStatusEntity> roamingDataProcessor() {
-        return item -> {
-            log.debug("Processing item: {}", item);
-            
-            LocalDateTime parsedTimestamp = LocalDateTime.parse(
-                item.getTimestamp(), 
-                DateTimeFormatter.ISO_LOCAL_DATE_TIME
-            );
-            
-            return RoamingStatusEntity.builder()
-                    .userId(item.getUserId())
-                    .deviceId(item.getDeviceId())
-                    .location(item.getLocation())
-                    .timestamp(parsedTimestamp)
-                    .status(RoamingStatusEntity.RoamingStatus.valueOf(item.getStatus()))
-                    .build();
-        };
-    }
+
 
     @Bean
     public JpaItemWriter<RoamingStatusEntity> jpaItemWriter() {
