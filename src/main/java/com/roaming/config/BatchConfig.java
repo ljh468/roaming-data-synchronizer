@@ -24,6 +24,17 @@ import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import com.roaming.job.partitioner.LineRangePartitioner;
+import org.springframework.batch.core.partition.support.Partitioner;
+import org.springframework.batch.core.partition.PartitionHandler;
+import org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.core.io.Resource;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.batch.item.file.mapping.DefaultLineMapper;
+
+import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.transaction.PlatformTransactionManager;
 
 @Slf4j
@@ -54,6 +65,14 @@ public class BatchConfig {
     }
 
     @Bean
+    public Job partitioningSyncJob() {
+        return new JobBuilder("partitioningSyncJob", jobRepository)
+                .listener(jobCompletionListener)
+                .start(partitionedStep())
+                .build();
+    }
+
+    @Bean
     public Step chunkReadAndSaveStep() {
         return new StepBuilder("chunkReadAndSaveStep", jobRepository)
                 .<RoamingData, RoamingStatusEntity>chunk(10, transactionManager)
@@ -80,6 +99,30 @@ public class BatchConfig {
     }
 
     @Bean
+    public Step partitionedStep() {
+        return new StepBuilder("partitionedStep", jobRepository)
+                .partitioner("workerStep", partitioner())
+                .partitionHandler(partitionHandler())
+                .build();
+    }
+
+    @Bean
+    public Step workerStep() {
+        return new StepBuilder("workerStep", jobRepository)
+                .<RoamingData, RoamingStatusEntity>chunk(10, transactionManager)
+                .reader(partitionedCsvReader(null, null))
+                .processor(roamingDataProcessor)
+                .writer(jpaItemWriter())
+                .faultTolerant()
+                .skip(IllegalArgumentException.class)
+                .skipLimit(5)
+                .retry(TransientDataAccessException.class)
+                .retryLimit(3)
+                .listener(stepCompletionListener)
+                .build();
+    }
+
+    @Bean
     @StepScope
     public FlatFileItemReader<RoamingData> csvItemReader() {
         return new FlatFileItemReaderBuilder<RoamingData>()
@@ -94,7 +137,63 @@ public class BatchConfig {
                 .build();
     }
 
+    @Bean
+    @StepScope
+    public FlatFileItemReader<RoamingData> partitionedCsvReader(
+            @Value("#{stepExecutionContext[startLine]}") Integer startLine,
+            @Value("#{stepExecutionContext[endLine]}") Integer endLine) {
+        
+        FlatFileItemReader<RoamingData> reader = new FlatFileItemReader<>();
+        reader.setName("partitionedCsvReader");
+        reader.setResource(new ClassPathResource("data/roaming-data-sample.csv"));
+        reader.setLineMapper(lineMapper());
+        
+        if (startLine != null && endLine != null) {
+            reader.setLinesToSkip(startLine - 1);
+            reader.setMaxItemCount(endLine - startLine + 1);
+        }
+        
+        return reader;
+    }
 
+    private DefaultLineMapper<RoamingData> lineMapper() {
+        DefaultLineMapper<RoamingData> lineMapper = new DefaultLineMapper<>();
+        DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
+        tokenizer.setNames("userId", "deviceId", "location", "timestamp", "status");
+        lineMapper.setLineTokenizer(tokenizer);
+        
+        BeanWrapperFieldSetMapper<RoamingData> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
+        fieldSetMapper.setTargetType(RoamingData.class);
+        lineMapper.setFieldSetMapper(fieldSetMapper);
+        
+        return lineMapper;
+    }
+
+    @Bean
+    public Partitioner partitioner() {
+        Resource resource = new ClassPathResource("data/roaming-data-sample.csv");
+        return new LineRangePartitioner(resource, 4);
+    }
+
+    @Bean
+    public PartitionHandler partitionHandler() {
+        TaskExecutorPartitionHandler partitionHandler = new TaskExecutorPartitionHandler();
+        partitionHandler.setStep(workerStep());
+        partitionHandler.setTaskExecutor(taskExecutor());
+        partitionHandler.setGridSize(4);
+        return partitionHandler;
+    }
+
+    @Bean
+    public TaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(10);
+        executor.setThreadNamePrefix("partition-");
+        executor.initialize();
+        return executor;
+    }
 
     @Bean
     public JpaItemWriter<RoamingStatusEntity> jpaItemWriter() {
