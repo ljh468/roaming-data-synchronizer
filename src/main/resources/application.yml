@@ -1,15 +1,24 @@
+server:
+  port: 8091
+
 spring:
   application:
     name: roaming-data-synchronizer
   
-  batch:
-    job:
+  docker:
+    compose:
       enabled: false
   
+  batch:
+    job:
+      enabled: true
+    jdbc:
+      initialize-schema: always
+  
   datasource:
-    url: jdbc:postgresql://localhost:5432/roaming_db
-    username: roaming_user
-    password: roaming_pass
+    url: jdbc:postgresql://localhost:5433/roaming-db
+    username: postgres
+    password: postgres
     driver-class-name: org.postgresql.Driver
   
   jpa:
