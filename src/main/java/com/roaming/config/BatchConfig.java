@@ -5,6 +5,7 @@ import com.roaming.domain.RoamingStatusEntity;
 import com.roaming.job.listener.JobCompletionListener;
 import com.roaming.job.listener.StepCompletionListener;
 import com.roaming.job.processor.RoamingDataProcessor;
+import com.roaming.job.processor.BasicRoamingDataProcessor;
 import com.roaming.job.tasklet.FileArchiveTasklet;
 import com.roaming.job.tasklet.CompletionNotificationTasklet;
 import jakarta.persistence.EntityManagerFactory;
@@ -48,6 +49,7 @@ public class BatchConfig {
     private final PlatformTransactionManager transactionManager;
     private final EntityManagerFactory entityManagerFactory;
     private final RoamingDataProcessor roamingDataProcessor;
+    private final BasicRoamingDataProcessor basicRoamingDataProcessor;
     private final JobCompletionListener jobCompletionListener;
     private final StepCompletionListener stepCompletionListener;
     private final FileArchiveTasklet fileArchiveTasklet;
@@ -105,7 +107,7 @@ public class BatchConfig {
         return new StepBuilder("chunkReadAndSaveStep", jobRepository)
                 .<RoamingData, RoamingStatusEntity>chunk(10, transactionManager)
                 .reader(csvItemReader())
-                .processor(roamingDataProcessor)
+                .processor(basicRoamingDataProcessor)
                 .writer(jpaItemWriter())
                 .build();
     }
