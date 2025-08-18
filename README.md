@@ -227,7 +227,7 @@ SELECT * FROM batch_step_execution ORDER BY step_execution_id DESC LIMIT 10;
 SELECT * FROM batch_job_execution WHERE status = 'FAILED';
 ```
 
-## 🏗 프로젝트 구조
+## 프로젝트 구조
 
 ```
 src/
